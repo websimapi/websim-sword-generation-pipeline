@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sword Generation Pipeline Documentation</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Sword Generation Pipeline Documentation</h1>
+            <p class="subtitle">Technical Overview for Developers and Players</p>
+        </header>
+
+        <section id="purpose">
+            <h2>1. Purpose of This Document</h2>
+            <p>This technical document serves as a comprehensive guide to our sword generation and rendering pipeline. It details the entire process from concept generation through AI-powered image creation to final 3D rendering in-game using Three.js. The intended audience includes:</p>
+            <ul>
+                <li><strong>Game Developers:</strong> Understanding the technical implementation to extend or modify the system</li>
+                <li><strong>Technical Artists:</strong> Insight into how art assets are processed and integrated</li>
+                <li><strong>Advanced Players:</strong> Behind-the-scenes knowledge of how unique weapons are created</li>
+            </ul>
+        </section>
+
+        <section id="overview">
+            <h2>2. System Overview</h2>
+            <div class="image-container">
+                <img src="images/sword_example.png" alt="Example of a generated sword" class="feature-image">
+                <p class="caption">Fig 1. Example of a procedurally generated sword with custom attributes</p>
+            </div>
+            <p>The sword generation pipeline consists of five major components working in sequence:</p>
+            
+            <div class="image-container">
+                <img src="images/pipeline_diagram.png" alt="Sword Generation Pipeline Workflow" class="feature-image">
+                <p class="caption">Fig 2. Workflow diagram of the complete sword generation pipeline</p>
+            </div>
+            
+            <ol>
+                <li><strong>Attribute Generation:</strong> Creating unique attributes for each sword</li>
+                <li><strong>AI Image Creation:</strong> Using AI to generate detailed sword concept images</li>
+                <li><strong>Image Processing:</strong> Post-processing the AI-generated images for game use</li>
+                <li><strong>3D Model Generation:</strong> Converting processed images into 3D models</li>
+                <li><strong>Three.js Integration:</strong> Rendering the final sword in the game environment</li>
+            </ol>
+        </section>
+
+        <section id="attribute-generation">
+            <h2>3. Attribute Generation</h2>
+            <p>Each sword begins as a collection of procedurally generated attributes that define its appearance and properties.</p>
+            
+            <h3>3.1 Attribute Categories</h3>
+            <ul>
+                <li><strong>Physical Properties:</strong> Length, width, weight, material</li>
+                <li><strong>Visual Properties:</strong> Color scheme, decoration style, weathering, glow effects</li>
+                <li><strong>Magical Properties:</strong> Element type, enchantment level, special effects</li>
+                <li><strong>Historical Context:</strong> Age, origin culture, notable previous owners</li>
+            </ul>
+
+            <h3>3.2 Procedural Generation Algorithm</h3>
+            <p>Attributes are generated using weighted random selection from predefined pools, with consideration for internal consistency. For example, an ancient sword is more likely to have weathering effects, while a magical sword may have ethereal glow properties.</p>
+            
+            <pre class="code-block">
+                // Simplified example of attribute generation logic
+                function generateSwordAttributes() {
+                    const rarity = weightedRandom(['common', 'uncommon', 'rare', 'legendary']);
+                    const material = selectMaterialByRarity(rarity);
+                    const age = calculateAge(material, rarity);
+                    const magicalProperties = assignMagicalProperties(rarity);
+                    
+                    return {
+                        physical: { length, width, weight, material },
+                        visual: { colorScheme, decorationStyle, weathering },
+                        magical: magicalProperties,
+                        history: { age, culture, previousOwners }
+                    };
+                }
+            </pre>
+        </section>
+
+        <section id="ai-image-creation">
+            <h2>4. AI Image Creation</h2>
+            <p>The generated attributes are translated into prompts for our AI image generation system.</p>
+            
+            <h3>4.1 Prompt Engineering</h3>
+            <p>Attributes are converted to natural language prompts with careful attention to descriptive language that guides the AI toward the desired visual outcome. The system uses prompt templates with slots for attribute values.</p>
+            
+            <pre class="code-block">
+                // Example of prompt construction
+                function buildImagePrompt(attributes) {
+                    return `Create a detailed image of a ${attributes.physical.length} ${attributes.physical.material} sword with 
+                    ${attributes.visual.decorationStyle} styling. The blade should appear ${attributes.visual.weathering} 
+                    with ${attributes.magical.element} ${attributes.magical.enchantmentLevel > 3 ? 'strongly glowing' : 'faintly glowing'} runes.`;
+                }
+            </pre>
+            
+            <h3>4.2 AI Model Configuration</h3>
+            <p>We utilize the websim/ai-inference ability to access state-of-the-art image generation models. The system is configured with specific parameters:</p>
+            
+            <ul>
+                <li><strong>Resolution:</strong> Initial generation at 1024×1024 pixels</li>
+                <li><strong>Negative Prompts:</strong> Used to avoid common issues like unrealistic proportions</li>
+                <li><strong>Sampling Method:</strong> DPM++ SDE Karras for optimal detail balance</li>
+                <li><strong>CFG Scale:</strong> 7.5 to balance creativity with prompt adherence</li>
+            </ul>
+            
+            <pre class="code-block">
+                // Example of AI image generation using websim/ai-inference
+                async function generateSwordImage(swordAttributes) {
+                    // Build the prompt from attributes
+                    const prompt = buildImagePrompt(swordAttributes);
+                    
+                    // Define negative prompt to avoid common issues
+                    const negativePrompt = "blurry, distorted proportions, broken blade, unrealistic materials, low quality, cartoon style";
+                    
+                    try {
+                        // Generate the image using websim.imageGen
+                        const result = await websim.imageGen({
+                            prompt: prompt,
+                            negative_prompt: negativePrompt,
+                            width: 1024,
+                            height: 1024,
+                            seed: generateSeedFromAttributes(swordAttributes), // For consistency in regeneration
+                        });
+                        
+                        // Download the image for processing
+                        const response = await fetch(result.url);
+                        const blob = await response.blob();
+                        
+                        // Convert to image data for processing
+                        return createImageBitmap(blob);
+                    } catch (error) {
+                        console.error("Error generating sword image:", error);
+                        // Fallback to default sword image if generation fails
+                        return loadDefaultSwordImage(swordAttributes.rarity);
+                    }
+                }
+                
+                // Helper function to generate a deterministic seed from sword attributes
+                function generateSeedFromAttributes(attributes) {
+                    // Create a string hash from key attributes
+                    const attributeString = `${attributes.physical.material}-${attributes.visual.decorationStyle}-${attributes.magical.element}-${attributes.magical.enchantmentLevel}`;
+                    
+                    // Simple hash function to generate a numeric seed
+                    let hash = 0;
+                    for (let i = 0; i < attributeString.length; i++) {
+                        const char = attributeString.charCodeAt(i);
+                        hash = ((hash << 5) - hash) + char;
+                        hash = hash & hash; // Convert to 32bit integer
+                    }
+                    
+                    // Return positive integer
+                    return Math.abs(hash);
+                }
+            </pre>
+        </section>
+
+        <section id="image-processing">
+            <h2>5. Image Processing</h2>
+            <p>AI-generated images require post-processing to make them suitable for game integration.</p>
+            
+            <h3>5.1 Background Removal</h3>
+            <p>The sword images are isolated from their backgrounds using a combination of computer vision techniques:</p>
+            <ul>
+                <li>Edge detection to identify sword boundaries</li>
+                <li>Alpha matting to create smooth edges</li>
+                <li>Manual verification and touch-up for complex cases</li>
+            </ul>
+            
+            <h3>5.2 Texture Map Extraction</h3>
+            <p>Multiple texture maps are extracted from the processed image:</p>
+            
+            <div class="image-container">
+                <img src="images/texture_maps.png" alt="Sword Texture Maps" class="feature-image">
+                <p class="caption">Fig 3. The four essential texture maps extracted from a processed sword image</p>
+            </div>
+            
+            <ul>
+                <li><strong>Diffuse Map:</strong> Base color information</li>
+                <li><strong>Normal Map:</strong> Surface detail simulation</li>
+                <li><strong>Metallic Map:</strong> Material properties for PBR rendering</li>
+                <li><strong>Emissive Map:</strong> For glowing elements like runes or gems</li>
+            </ul>
+            
+            <pre class="code-block">
+                // Example of texture map generation
+                async function extractTextureMaps(processedImage) {
+                    // Extract base diffuse map
+                    const diffuseMap = await processImage(processedImage, 'diffuse');
+                    
+                    // Generate normal map from diffuse using height information
+                    const normalMap = await generateNormalMap(diffuseMap);
+                    
+                    // Create metallic map based on material properties
+                    const metallicMap = await generateMetallicMap(diffuseMap, swordAttributes.physical.material);
+                    
+                    // Create emissive map for magical effects
+                    const emissiveMap = await generateEmissiveMap(diffuseMap, swordAttributes.magical);
+                    
+                    return {
+                        diffuse: diffuseMap,
+                        normal: normalMap,
+                        metallic: metallicMap,
+                        emissive: emissiveMap
+                    };
+                }
+            </pre>
+        </section>
+
+        <section id="3d-model-generation">
+            <h2>6. 3D Model Generation</h2>
+            <p>The processed images are used to create or modify 3D models for in-game use.</p>
+            
+            <h3>6.1 Base Mesh Selection</h3>
+            <p>Based on the sword's attributes, an appropriate base mesh is selected from a library of pre-created sword templates. This provides the basic geometry upon which details will be applied.</p>
+            
+            <h3>6.2 Mesh Modification</h3>
+            <p>The base mesh is then modified according to the sword's unique properties:</p>
+            <ul>
+                <li>Scaling to match the specified dimensions</li>
+                <li>Applying deformations based on the sword type</li>
+                <li>Adding geometry for decorative elements</li>
+            </ul>
+            
+            <h3>6.3 UV Mapping</h3>
+            <p>The processed texture maps are applied to the 3D model through careful UV mapping, ensuring textures align properly with the geometry.</p>
+            
+            <pre class="code-block">
+                // Example of 3D model generation process
+                async function create3DModel(attributes, textureMaps) {
+                    // Select base mesh template
+                    const baseMesh = selectBaseMesh(attributes.physical.type);
+                    
+                    // Apply scaling and modifications
+                    const modifiedMesh = modifyMesh(baseMesh, attributes.physical);
+                    
+                    // Create material using the texture maps
+                    const material = createPBRMaterial(textureMaps);
+                    
+                    // Apply UV mapping
+                    applyUVMapping(modifiedMesh, material);
+                    
+                    return {
+                        geometry: modifiedMesh,
+                        material: material
+                    };
+                }
+            </pre>
+        </section>
+
+        <section id="threejs-integration">
+            <h2>7. Three.js Integration</h2>
+            <p>The final stage involves rendering the 3D sword model in the game environment using Three.js.</p>
+            
+            <h3>7.1 Loading the Model</h3>
+            <p>The sword model and its textures are loaded into Three.js, with special attention to memory management for performance optimization.</p>
+            
+            <h3>7.2 Material Setup</h3>
+            <p>PBR (Physically Based Rendering) materials are configured to take advantage of Three.js lighting systems:</p>
+            <ul>
+                <li>MeshStandardMaterial for basic PBR</li>
+                <li>Custom shaders for special effects (like glowing runes)</li>
+                <li>Environment maps for realistic reflections</li>
+            </ul>
+            
+            <h3>7.3 Interactive Elements</h3>
+            <p>Interactive elements are added to allow players to examine and interact with their swords:</p>
+            <ul>
+                <li>Rotation controls for 360° viewing</li>
+                <li>Zoom functionality for examining details</li>
+                <li>Animation triggers for special effects</li>
+            </ul>
+            
+            <pre class="code-block">
+                // Example of Three.js integration
+                function setupSwordInThreeJS(swordModel) {
+                    // Create scene and camera
+                    const scene = new THREE.Scene();
+                    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                    camera.position.z = 5;
+                    
+                    // Add appropriate lighting
+                    const ambientLight = new THREE.AmbientLight(0x404040);
+                    scene.add(ambientLight);
+                    
+                    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+                    directionalLight.position.set(1, 1, 1);
+                    scene.add(directionalLight);
+                    
+                    // Add the sword model to the scene
+                    scene.add(swordModel);
+                    
+                    // Setup special effects if needed
+                    if (swordModel.hasEmissiveElements) {
+                        setupGlowEffect(swordModel, scene);
+                    }
+                    
+                    // Setup interactive controls
+                    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+                    controls.enableZoom = true;
+                    controls.enablePan = false;
+                    
+                    // Animation loop
+                    function animate() {
+                        requestAnimationFrame(animate);
+                        controls.update();
+                        renderer.render(scene, camera);
+                    }
+                    
+                    animate();
+                }
+            </pre>
+        </section>
+
+        <section id="inventory-integration">
+            <h2>8. Inventory System Integration</h2>
+            <p>Once generated, swords are stored in the game's inventory system using a structured JSON format.</p>
+            
+            <h3>8.1 Sword Data Structure</h3>
+            <p>Each sword is represented by a comprehensive JSON object that contains all necessary information:</p>
+            
+            <pre class="code-block">
+                // Example of sword data JSON structure
+                {
+                    "id": "e7c8a12b-3d9f-4e7a-8f1d-25a9e02e6c15",
+                    "name": "Frostbite",
+                    "type": "longsword",
+                    "rarity": "legendary",
+                    "level": 42,
+                    "physical": {
+                        "length": 120,  // in cm
+                        "weight": 2.5,  // in kg
+                        "material": "enchanted_steel",
+                        "durability": 950,
+                        "damage": {
+                            "base": 75,
+                            "type": "slashing"
+                        }
+                    },
+                    "visual": {
+                        "colorScheme": "ice_blue",
+                        "decorationStyle": "nordic",
+                        "weathering": "pristine",
+                        "inscriptions": true
+                    },
+                    "magical": {
+                        "element": "ice",
+                        "enchantmentLevel": 5,
+                        "effects": [
+                            {
+                                "type": "frost_damage",
+                                "value": 25,
+                                "duration": 5  // in seconds
+                            },
+                            {
+                                "type": "movement_slow",
+                                "value": 30,  // percentage
+                                "duration": 3  // in seconds
+                            }
+                        ]
+                    },
+                    "history": {
+                        "age": 347,  // in years
+                        "culture": "northern_realm",
+                        "previousOwners": [
+                            "Jormund the Frost King",
+                            "Valeria Iceheart"
+                        ],
+                        "lore": "Forged in the eternal ice of the Northern Peaks..."
+                    },
+                    "assets": {
+                        "thumbnail": "swords/e7c8a12b/thumbnail.png",
+                        "fullImage": "swords/e7c8a12b/full.png",
+                        "model": "swords/e7c8a12b/model.glb",
+                        "textures": {
+                            "diffuse": "swords/e7c8a12b/textures/diffuse.jpg",
+                            "normal": "swords/e7c8a12b/textures/normal.jpg",
+                            "metallic": "swords/e7c8a12b/textures/metallic.jpg",
+                            "emissive": "swords/e7c8a12b/textures/emissive.jpg"
+                        }
+                    },
+                    "gameplay": {
+                        "requiredLevel": 38,
+                        "requiredStrength": 45,
+                        "specialMoves": [
+                            "frost_nova",
+                            "ice_slash"
+                        ],
+                        "cooldowns": {
+                            "frost_nova": 30,  // in seconds
+                            "ice_slash": 15    // in seconds
+                        }
+                    },
+                    "metadata": {
+                        "createdAt": "2023-11-15T08:24:31Z",
+                        "generationSeed": "78a92c4fd13e",
+                        "version": "2.4.1"
+                    }
+                }
+            </pre>
+            
+            <h3>8.2 Database Storage</h3>
+            <p>Sword data is stored in a NoSQL database for flexibility, with appropriate indexing for quick retrieval during gameplay.</p>
+            
+            <h3>8.3 Player Inventory Synchronization</h3>
+            <p>When a player acquires a sword, references to the sword data are added to their inventory, with provisions for:</p>
+            <ul>
+                <li>Player-specific modifications (enhancements, customizations)</li>
+                <li>Usage statistics tracking</li>
+                <li>Trading capabilities</li>
+            </ul>
+        </section>
+
+        <section id="optimization">
+            <h2>9. Performance Optimization</h2>
+            <p>Several techniques are employed to ensure the system performs well even with many unique swords:</p>
+            
+            <h3>9.1 Asset Management</h3>
+            <ul>
+                <li><strong>Texture Atlasing:</strong> Combining multiple sword textures into single larger textures</li>
+                <li><strong>LOD (Level of Detail):</strong> Using simplified models when swords are viewed from a distance</li>
+                <li><strong>Instancing:</strong> For cases where multiple identical swords need to be rendered</li>
+            </ul>
+            
+            <h3>9.2 Generation Caching</h3>
+            <p>To avoid regenerating swords unnecessarily:</p>
+            <ul>
+                <li>Results of generation steps are cached</li>
+                <li>Common sword variants are pre-generated</li>
+                <li>Background generation during idle gameplay moments</li>
+            </ul>
+            
+            <h3>9.3 Network Optimization</h3>
+            <p>For multiplayer scenarios:</p>
+            <ul>
+                <li>Progressive loading of sword assets</li>
+                <li>Transmitting only essential sword data initially</li>
+                <li>Peer-to-peer sharing of common sword assets</li>
+            </ul>
+        </section>
+
+        <section id="future-development">
+            <h2>10. Future Development</h2>
+            <p>The sword generation pipeline is designed to be extensible. Planned future enhancements include:</p>
+            
+            <ul>
+                <li><strong>Player Customization:</strong> Allowing players to influence the generation process</li>
+                <li><strong>Evolutionary Algorithms:</strong> Swords that "evolve" based on usage patterns</li>
+                <li><strong>Community Sharing:</strong> Systems for players to share particularly interesting generated swords</li>
+                <li><strong>Enhanced Physics:</strong> More realistic swing and impact simulations based on sword properties</li>
+                <li><strong>Wear and Damage:</strong> Visual representation of sword condition that changes over time</li>
+            </ul>
+        </section>
+
+        <section id="technical-requirements">
+            <h2>11. Technical Requirements</h2>
+            <p>For developers working with this system, the following prerequisites are needed:</p>
+            
+            <h3>11.1 Development Environment</h3>
+            <ul>
+                <li>Node.js 16+ for development tools</li>
+                <li>WebGL 2.0 compatible device for testing</li>
+                <li>Access to AI inference APIs</li>
+            </ul>
+            
+            <h3>11.2 Runtime Requirements</h3>
+            <p>End users of the game will need:</p>
+            <ul>
+                <li>WebGL 2.0 compatible browser</li>
+                <li>4GB+ RAM recommended</li>
+                <li>Dedicated GPU recommended for optimal experience</li>
+            </ul>
+        </section>
+
+        <section id="conclusion">
+            <h2>12. Conclusion</h2>
+            <p>The sword generation and rendering pipeline represents a sophisticated approach to creating unique, visually appealing, and functionally diverse weapons for our game. By leveraging AI-powered image creation, advanced image processing, and Three.js rendering, we're able to offer players an almost unlimited variety of distinctive swords that enhance both gameplay and aesthetic experience.</p>
+            <p>This documentation serves as both a technical reference and a blueprint for future extensions to the system. As technology evolves, so too will our approach to procedural content generation.</p>
+        </section>
+    </div>
+
+    <footer>
+        <p>&#xa9; 2023 Game Development Team | Version 1.0.0 | Last Updated: November 15, 2023</p>
+    </footer>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
