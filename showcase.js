@@ -1,8 +1,13 @@
 // Sword Generation Showcase - Main JavaScript
-  
+        
 document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM loaded, initializing viewer');
+    
     // Initialize the sword viewer
     const viewer = new SwordViewer('sword-container');
+    
+    // Store the viewer instance for later access
+    window.swordViewer = viewer;
     
     // Set up event listeners for controls
     document.getElementById('activate-sword').addEventListener('click', () => {
@@ -44,7 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupNavigation();
     
     // Load the default sword
-    loadDefaultSword();
+    loadDefaultSword(viewer);
 });
 
 // Sword Viewer Class
@@ -60,6 +65,8 @@ class SwordViewer {
     }
 
     setupThreeJS() {
+        console.log('Setting up Three.js scene');
+        
         // Create scene
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x1c2541);
@@ -74,8 +81,9 @@ class SwordViewer {
         this.camera.position.z = 3;
         this.camera.position.y = 0.5;
 
-        // Setup renderer
+        // Setup renderer with high pixel ratio for better quality
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -86,29 +94,45 @@ class SwordViewer {
 
         // Add ground plane with grid
         this.addGroundPlane();
+        
+        // Add axes helper for debugging
+        const axesHelper = new THREE.AxesHelper(2);
+        this.scene.add(axesHelper);
 
         // Add event listener for window resize
         window.addEventListener('resize', () => this.onWindowResize(), false);
+        
+        console.log('Three.js scene setup complete');
     }
 
     addLighting() {
-        // Ambient light
-        const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+        // Ambient light - brighter for better visibility
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.8);
         this.scene.add(ambientLight);
 
-        // Main directional light
-        const mainLight = new THREE.DirectionalLight(0xffffff, 1);
-        mainLight.position.set(5, 5, 5);
+        // Main directional light - position adjusted for better lighting
+        const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
+        mainLight.position.set(2, 4, 2);
         mainLight.castShadow = true;
+        // Improve shadow quality
+        mainLight.shadow.mapSize.width = 2048;
+        mainLight.shadow.mapSize.height = 2048;
+        mainLight.shadow.camera.near = 0.5;
+        mainLight.shadow.camera.far = 50;
         this.scene.add(mainLight);
 
         // Additional rim light
-        const rimLight = new THREE.DirectionalLight(0x5bc0be, 0.7);
+        const rimLight = new THREE.DirectionalLight(0x5bc0be, 0.8);
         rimLight.position.set(-5, 3, -5);
         this.scene.add(rimLight);
 
+        // Front fill light
+        const fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        fillLight.position.set(0, 2, 5);
+        this.scene.add(fillLight);
+
         // Optional: Add point light for magical glow effect
-        this.magicLight = new THREE.PointLight(0x5bc0be, 0, 3);
+        this.magicLight = new THREE.PointLight(0x5bc0be, 0, 5);
         this.magicLight.position.set(0, 0.5, 0);
         this.scene.add(this.magicLight);
     }
@@ -181,23 +205,29 @@ class SwordViewer {
         this.updateSwordInfoUI();
         
         // For this demo, we'll use a placeholder model URL
-        const modelUrl = swordData.assets.model || 'https://market-assets.fra1.cdn.digitaloceanspaces.com/market-assets/models/sword/model.gltf';
+        // Using a known working sword model URL
+        const modelUrl = 'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Sword/glTF-Binary/Sword.glb';
+        
+        // Log for debugging
+        console.log('Loading sword model from:', modelUrl);
         
         // Load the sword model
         const loader = new THREE.GLTFLoader();
         loader.load(modelUrl, (gltf) => {
+            console.log('Model loaded successfully:', gltf);
+            
             // Add the loaded model to our sword group
             this.sword.add(gltf.scene);
             
             // Set initial scale based on sword type
-            let scale = 1.0;
+            let scale = 1.5; // Increased default scale for better visibility
             switch(swordData.type) {
-                case 'shortsword': scale = 0.7; break;
-                case 'greatsword': scale = 1.3; break;
-                case 'rapier': scale = 0.9; break;
-                case 'katana': scale = 1.1; break;
-                case 'falchion': scale = 0.9; break;
-                default: scale = 1.0;
+                case 'shortsword': scale = 1.0; break;
+                case 'greatsword': scale = 2.0; break;
+                case 'rapier': scale = 1.2; break;
+                case 'katana': scale = 1.5; break;
+                case 'falchion': scale = 1.2; break;
+                default: scale = 1.5;
             }
             this.sword.scale.set(scale, scale, scale);
             
@@ -211,20 +241,83 @@ class SwordViewer {
             // Adjust sword position for better display
             this.sword.position.y += 0.5;
             
+            // Rotate the sword to face the camera better
+            this.sword.rotation.y = Math.PI / 4;
+            
             // Add the sword to the scene
             this.scene.add(this.sword);
             
             // Set up the magic light color based on element
             this.setupMagicLightColor();
             
+            // Reset the camera view for better framing
+            this.resetView();
+            
             // Hide loading overlay
             document.getElementById('viewer-loading').classList.remove('active');
-        }, undefined, (error) => {
+        }, 
+        // Progress callback
+        (xhr) => {
+            console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+        },
+        // Error callback
+        (error) => {
             console.error('Error loading sword model:', error);
             document.getElementById('viewer-loading').classList.remove('active');
+            
+            // Create a fallback geometry if model fails to load
+            this.createFallbackSword();
         });
     }
     
+    createFallbackSword() {
+        // Create a basic sword shape as fallback
+        const swordGroup = new THREE.Group();
+        
+        // Blade
+        const bladeGeometry = new THREE.BoxGeometry(0.1, 1.5, 0.05);
+        const bladeMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xCCCCCC, 
+            metalness: 0.8,
+            roughness: 0.2
+        });
+        const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+        blade.position.y = 0.75;
+        swordGroup.add(blade);
+        
+        // Handle
+        const handleGeometry = new THREE.CylinderGeometry(0.03, 0.03, 0.4, 16);
+        const handleMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x8B4513, 
+            metalness: 0.1,
+            roughness: 0.8
+        });
+        const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+        handle.position.y = -0.2;
+        handle.rotation.x = Math.PI / 2;
+        swordGroup.add(handle);
+        
+        // Guard
+        const guardGeometry = new THREE.BoxGeometry(0.3, 0.05, 0.08);
+        const guardMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0xAA8844, 
+            metalness: 0.7,
+            roughness: 0.3
+        });
+        const guard = new THREE.Mesh(guardGeometry, guardMaterial);
+        guard.position.y = 0;
+        swordGroup.add(guard);
+        
+        // Position the fallback sword
+        swordGroup.position.y = 0.5;
+        
+        // Add to scene
+        this.sword = swordGroup;
+        this.scene.add(this.sword);
+        
+        console.log('Using fallback sword model');
+    }
+
     setupMagicLightColor() {
         if (!this.swordData || !this.swordData.magical) return;
         
@@ -240,7 +333,7 @@ class SwordViewer {
             default: this.magicLight.color.set(0xffffff);
         }
     }
-    
+
     updateSwordInfoUI() {
         // Update the sword info panel with data
         if (!this.swordData) return;
@@ -295,7 +388,7 @@ class SwordViewer {
             historyProperties[2].textContent = this.swordData.history.previousOwners ? this.swordData.history.previousOwners.join(', ') : 'Unknown';
         }
     }
-    
+
     activateSword() {
         if (!this.sword || !this.swordData) return;
         
@@ -352,7 +445,7 @@ class SwordViewer {
                 .start();
         }
     }
-    
+
     toggleAutoRotation() {
         this.autoRotationEnabled = !this.autoRotationEnabled;
         this.controls.autoRotate = this.autoRotationEnabled;
@@ -361,14 +454,14 @@ class SwordViewer {
         const button = document.getElementById('toggle-rotation');
         button.textContent = this.autoRotationEnabled ? 'Stop Rotation' : 'Toggle Auto-Rotation';
     }
-    
+
     resetView() {
         // Reset camera position
         this.camera.position.set(0, 0.5, 3);
         this.controls.target.set(0, 0, 0);
         this.controls.update();
     }
-    
+
     takeScreenshot() {
         // Render the scene
         this.renderer.render(this.scene, this.camera);
@@ -382,7 +475,7 @@ class SwordViewer {
         link.download = `${this.swordData.name || 'sword'}_screenshot.png`;
         link.click();
     }
-    
+
     onWindowResize() {
         // Update camera aspect ratio
         this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
@@ -391,7 +484,7 @@ class SwordViewer {
         // Update renderer size
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     }
-    
+
     animate() {
         requestAnimationFrame(() => this.animate());
         
@@ -498,7 +591,9 @@ function setupNavigation() {
 }
 
 // Load the default sword
-function loadDefaultSword() {
+function loadDefaultSword(viewer) {
+    console.log('Loading default sword');
+    
     // Sample sword data - in a real application this would come from the generation pipeline
     const sampleSwordData = {
         "id": "e7c8a12b-3d9f-4e7a-8f1d-25a9e02e6c15",
@@ -551,7 +646,7 @@ function loadDefaultSword() {
         "assets": {
             "thumbnail": "swords/e7c8a12b/thumbnail.png",
             "fullImage": "swords/e7c8a12b/full.png",
-            "model": "https://market-assets.fra1.cdn.digitaloceanspaces.com/market-assets/models/sword/model.gltf", // Example URL to a sword model
+            "model": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Sword/glTF-Binary/Sword.glb", // Using a known working sword model
             "textures": {
                 "diffuse": "swords/e7c8a12b/textures/diffuse.jpg",
                 "normal": "swords/e7c8a12b/textures/normal.jpg",
@@ -579,17 +674,15 @@ function loadDefaultSword() {
     };
     
     // Load the sample sword into the viewer
-    const viewer = document.querySelector('main').swordViewer;
     if (viewer) {
+        console.log('Viewer found, loading sword...');
         viewer.loadSword(sampleSwordData);
     } else {
-        // If the viewer isn't available yet, wait a moment and try again
-        setTimeout(() => {
-            const viewer = new SwordViewer('sword-container');
-            viewer.loadSword(sampleSwordData);
-            // Store the viewer instance for later access
-            document.querySelector('main').swordViewer = viewer;
-        }, 100);
+        console.error('Viewer not initialized correctly');
+        // Use the global viewer if available
+        if (window.swordViewer) {
+            window.swordViewer.loadSword(sampleSwordData);
+        }
     }
 }
 
@@ -648,14 +741,13 @@ function generateSwordFromForm() {
             "previousOwners": generatePreviousOwners(rarity, element)
         },
         "assets": {
-            "model": "https://market-assets.fra1.cdn.digitaloceanspaces.com/market-assets/models/sword/model.gltf" // Placeholder model URL
+            "model": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0/Sword/glTF-Binary/Sword.glb" // Using a known working sword model
         }
     };
     
     // Load the generated sword
-    const viewer = document.querySelector('main').swordViewer;
-    if (viewer) {
-        viewer.loadSword(swordData);
+    if (window.swordViewer) {
+        window.swordViewer.loadSword(swordData);
     }
 }
 
